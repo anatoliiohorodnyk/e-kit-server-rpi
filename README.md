@@ -1,2 +1,1 @@
-# e-kit-server
-Power distibution PoC
+# Power Distribution POC 
