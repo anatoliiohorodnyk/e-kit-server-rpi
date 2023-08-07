@@ -1,10 +1,10 @@
 import datetime
 
 import sqlalchemy as db
-from sqlalchemy import ForeignKey, func
+from sqlalchemy import ForeignKey, func, text
 
-PATH_TO_DB = '/home/pi/PoC/device_list.sqlite'
-SQLITE_PATH_TO_DB = f"sqlite:///{PATH_TO_DB}"
+PATH_TO_DB = "/home/max/e-kit-server/device_list.sqlite"
+SQLITE_PATH_TO_DB = "sqlite:////home/max/e-kit-server/device_list.sqlite"
 
 
 class ServerDataBase:
@@ -58,10 +58,10 @@ class ServerDataBase:
     def execute_query_with_output(self, value):
         data_base_connection = self.engine.connect()
         try:
-            #print(value)
-            result = data_base_connection.execute(value).fetchall()
+            print(value)
+            result = data_base_connection.execute(text(value)).fetchall()
             data_base_connection.close()
-            #print(f"result from execute_query_with_output : {result} of type {type(result)}")
+            print(f"result from execute_query_with_output : {result} of type {type(result)}")
             if result:
                 return result
             else:
@@ -75,8 +75,10 @@ class ServerDataBase:
     def execute_query_without_output(self, value):
         data_base_connection = self.engine.connect()
         try:
+            print(data_base_connection)
             #print(value)
-            data_base_connection.execute(value)
+            data_base_connection.execute(text(value))
+            data_base_connection.commit()
             data_base_connection.close()
             return True
         except Exception as err:
@@ -95,7 +97,16 @@ class ServerDataBase:
 
     def insert_in_db(self, table, colums, params: list):
         insert_into = f'INSERT INTO {table} ({colums}) VALUES {params}'
-        #print(insert_into)
+        print(insert_into)
+        if not self.execute_query_without_output(insert_into):
+            print(f'Cant insert info in db: {insert_into}')
+            return False
+        return True
+    
+    def update_in_db(self, table, colum, param: list, condition):
+        print("******************UPDATE****************")
+        insert_into = f'UPDATE {table} SET {colum} = {param} WHERE Id = {condition}'
+        print(insert_into)
         if not self.execute_query_without_output(insert_into):
             print(f'Cant insert info in db: {insert_into}')
             return False
@@ -103,6 +114,8 @@ class ServerDataBase:
 
     def delete_from_db(self, table, condition):
         delete_from = f'DELETE FROM {table} WHERE {condition}'
+        print("**************************DELETION HERE***********************")
+        print(delete_from)
         if not self.execute_query_without_output(delete_from):
             print(f'Cant delete info from db: {delete_from}')
             return False

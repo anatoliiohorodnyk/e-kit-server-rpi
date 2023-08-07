@@ -4,6 +4,8 @@ from utils.sql_database.sql_query import SELECT_POWER_SUPPLIER_FROM_DEVICE_INFO,
 
 import json
 import logging
+import time
+from sqlalchemy import text 
 
 on_request_result = []
 
@@ -134,35 +136,33 @@ def wait_for_response(service_name, requester_id):
 @send_discovered_devices_topic
 def registration_procedure(client, msg, avahi_server, db):
     service_name_from_topic = msg.topic.split('/')[0]
-    device_info_from_avahi = avahi_server.resolve(service_name_from_topic)
     logging.info(f'Service name: {service_name_from_topic}')
-    service_data = avahi_server.services_discovered.get(service_name_from_topic)
-    if not device_info_from_avahi:
-        client.publish(topic=f"{msg.topic.split('/')[0]}/set.from_server",
-                           payload=json.dumps({"result": False, "parameters": {}}))
-        logging.info("Device is not registered on avahi")
-        return
-
-    logging.info(f'Before insert: {device_info_from_avahi}')
-    if db.get_all_from_db(table='DevicesInfo', condition=f"ServiceName == '{service_data.name}'"):
+    logging.info(f'mqtt topic: {msg.topic.split("/")}')
+    if db.get_all_from_db(table='DevicesInfo', condition=f"ServiceName == '{msg.topic.split('/')[0]}'"):
         client.publish(topic=f"{service_name_from_topic}/set.from_server", payload=json.dumps({"result": True, "parameters": {}}))
         return
+    
+    data = json.loads(msg.payload)
+    print(data['parameters']['name'])
     if not db.insert_in_db('DevicesInfo', 'ServiceName, DeviceType, Power, IsConsumer', (
-            device_info_from_avahi.name,
-            device_info_from_avahi.txt.get('device'),
-            device_info_from_avahi.txt.get('power'),
-            device_info_from_avahi.txt.get('is_consumer')
+            data['parameters']['name'],
+            data['parameters']['device'],
+            data['parameters']['power'],
+            data['parameters']['is_consumer']
     )):
         client.publish(topic=f"{service_name_from_topic}/set.from_server", payload=json.dumps({"result": False, "parameters": {}}))
         print('Inserting in DeviceInfo failed')
         return
-    logging.info('Getting static data')
+    logging.info('************Getting static data************')
     static_service_db_data = db.get_all_from_db(table='DevicesInfo',
-                                                condition=f"ServiceName == '{service_data.name}'")
+                                                condition=f"ServiceName == '{data['parameters']['name']}'")
     logging.info(f"After Getting static data: {static_service_db_data}")
-    if device_info_from_avahi.txt.get('is_consumer'):
+    if data['parameters']['is_consumer']:
         logging.info('Is consumer True')
         logging.info('DeviceState insert')
+        logging.info("*********** HERE IT IS *************\n\n\n")
+        logging.info(f"******************** POWER SUPPLIER: {get_power_supplier_power(db)} **********************\n\n\n")
+        print("**********HERE************")
         if static_service_db_data[0][3] <= get_power_supplier_power(db):
             is_active = True
             state = client.last.get('parameters').get('state')
@@ -171,7 +171,7 @@ def registration_procedure(client, msg, avahi_server, db):
             state = False
         if not db.insert_in_db('DeviceState', 'DeviceId, Priority, State, IsActive, Blocked', (
                 db.get_all_from_db(table='DevicesInfo',
-                                   condition=f"ServiceName == '{service_data.name}'")[0][0],
+                                   condition=f"ServiceName == '{data['parameters']['name']}'")[0][0],
                 client.last.get('parameters').get('priority'),
                 state,
                 is_active,
@@ -189,7 +189,7 @@ def registration_procedure(client, msg, avahi_server, db):
         # TODO check supplier state
         if not db.insert_in_db('DeviceState', 'DeviceId, Priority, State, IsActive, Blocked', (
                 db.get_all_from_db(table='DevicesInfo',
-                                   condition=f"ServiceName == '{service_data.name}'")[0][0],
+                                   condition=f"ServiceName == '{data['parameters']['name']}'")[0][0],
                 client.last.get('parameters').get('priority'),
                 client.last.get('parameters').get('state'),
                 client.last.get('parameters').get('is_active'),
@@ -206,9 +206,9 @@ def registration_procedure(client, msg, avahi_server, db):
 @send_discovered_devices_topic
 def power_on_procedure(client, msg, avahi_server, db):
     service_name_from_topic = msg.topic.split('/')[0]
-    service_data = avahi_server.services_discovered.get(service_name_from_topic)
+    print("*********************POWER ON************************")
     static_service_db_data = db.get_all_from_db(table='DevicesInfo',
-                                                condition=f"ServiceName == '{service_data.name}'")
+                                                condition=f"ServiceName == '{service_name_from_topic}'")
     if not static_service_db_data:
         print("Reject power on request: no available power")
         client.publish(topic=f"{service_name_from_topic}/set.from_server",
@@ -221,7 +221,6 @@ def power_on_procedure(client, msg, avahi_server, db):
         client.publish(topic=f"{service_name_from_topic}/set.from_server",
                        payload=json.dumps({"result": False, "parameters": {"state": False}}))
         return
-
     # TODO: Add veriffication for device state
     if dynamic_service_db_data[-1][3] == 1:
         print('Device is already power on')
@@ -232,16 +231,22 @@ def power_on_procedure(client, msg, avahi_server, db):
     max_power = get_power_supplier_power(db)
     available_overall_power = max_power - overall_power
     print(f"Available power:{available_overall_power}")
+    print("*********************COMPLETED CHECK************************")
+    print(static_service_db_data[0][3])
+    print(available_overall_power)
     if static_service_db_data[0][3] > available_overall_power:
         # Free up power
+        print("************************CHECK PRIORITY*************************")
         logging.info(f"Dynamic state: {dynamic_service_db_data[0][3]}")
         query = f'SELECT DevicesInfo.ServiceName, DeviceState.Priority, DeviceState.DeviceId, DevicesInfo.Power ' \
                 f'FROM DevicesInfo LEFT JOIN DeviceState ON DevicesInfo.Id == DeviceState.DeviceId ' \
-                f"WHERE DevicesInfo.IsConsumer == 1 and DeviceState.State == 1 AND DeviceState.Priority < {dynamic_service_db_data[-1][2]} ORDER BY DeviceState.Priority"
+                f"WHERE DevicesInfo.IsConsumer == 1 and DeviceState.State == 1 AND DeviceState.Priority > {dynamic_service_db_data[-1][2]} ORDER BY DeviceState.Priority"
         result = db.execute_query_with_output(query)
         power_to_release = static_service_db_data[0][3] - available_overall_power
         devices_to_power_off = []
         logging.info(f"Result: {result}")
+        print("*****************PASSED HERE**************")
+        print(result)
         if result:
             for record in result:
                 if power_to_release <= 0:
@@ -281,6 +286,7 @@ def power_on_procedure(client, msg, avahi_server, db):
             client.publish(topic=f"{service_name_from_topic}/set.from_server",
                         payload=json.dumps({"result": False, "parameters": {"state": False}}))
             return
+        
     overall_power = get_overall_power(db)
     db.insert_in_db('PowerConsumption',
                     "DeviceId, DeviceConsumption, OverallConsumption",
@@ -297,7 +303,9 @@ def power_on_procedure(client, msg, avahi_server, db):
                         client.last.get('parameters').get('priority'), 
                         client.last.get('parameters').get('state'),
                         client.last.get('parameters').get('is_active'),
-                        client.last.get('parameters').get('blocked')))
+                        client.last.get('parameters').get('blocked')
+                        )
+                        )
     client.publish(topic=f"{service_name_from_topic}/set.from_server", payload=json.dumps({"result": True, "parameters": {"state": True}}))
     logging.info('Response published')
 
@@ -313,6 +321,7 @@ def power_off_procedure(client, msg, avahi_server, db):
     query = f'SELECT State FROM DeviceState WHERE DeviceId == {service_db_data[0] if service_db_data else None} ORDER BY Id DESC LIMIT 1'
     state = db.execute_query_with_output(query)
     state = state[0][0] if state else None
+    print(service_db_data[0])
     if state == 1:
         overall_power = get_overall_power(db)
         db.insert_in_db('PowerConsumption',
@@ -421,8 +430,9 @@ def new_name_procedure(client, msg, db):
                    payload=json.dumps({"result": result, "parameters": {"name": new_service_name}}))
 
 def set_commands_handler(client, msg, avahi_server, db):
+    print(f"****** COMMAND CODE: {client.last.get('command')} ********")
     if client.last.get("command") == "register":
-        logging.info('Executing registration procedure')
+        logging.info('**********Executing registration procedure*****************')
         registration_procedure(client, msg, avahi_server, db)
     elif client.last.get("command") == "power_on":
         logging.info('Execution power on procedure')

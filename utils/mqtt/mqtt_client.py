@@ -42,6 +42,7 @@ class MQTTClient(mqtt.Client):
             print("MQTT received: topic: " + msg.topic + " qos: " + str(msg.qos) + " message: " + str(client.last))
             if 'set.to_server' in msg.topic:
                 print(msg)
+
                 set_commands_handler(client, msg, client.avahi_server, client.db_server)
             elif 'get.to_server' in msg.topic:
                 print(msg)
