@@ -248,6 +248,7 @@ def power_on_procedure(client, msg, avahi_server, db):
         print("*****************PASSED HERE**************")
         print(result)
         if result:
+            print("*****************YES IT IS HERE**************")
             for record in result:
                 if power_to_release <= 0:
                     break
@@ -382,10 +383,10 @@ def get_status_procedure(client, msg, avahi_server, db):
 
 def update_procedure(client, msg, avahi_server, db):
     service_name_from_topic = msg.topic.split('/')[0]
-    service_data = avahi_server.services_discovered.get(service_name_from_topic)
-    if not service_data:
-        logging.info("Device is not registered on avahi")
-        return
+    #service_data = avahi_server.services_discovered.get(service_name_from_topic)
+    #if not service_data:
+    #    logging.info("Device is not registered on avahi")
+    #    return
     static_service_db_data = db.get_all_from_db(table='DevicesInfo',
                                                 condition=f"ServiceName == '{service_data.name}'")
     if not static_service_db_data:
