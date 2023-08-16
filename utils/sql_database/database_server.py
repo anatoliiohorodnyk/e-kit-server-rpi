@@ -60,6 +60,7 @@ class ServerDataBase:
         try:
             print(value)
             result = data_base_connection.execute(text(value)).fetchall()
+	    data_base_connection.commit()
             data_base_connection.close()
             print(f"result from execute_query_with_output : {result} of type {type(result)}")
             if result:
