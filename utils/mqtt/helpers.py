@@ -37,7 +37,7 @@ def send_active_devices_topic(func):
     def wrapper(*args, **kwargs):
         result = func(*args, **kwargs)
         logging.info('Executing wrapper')
-        query = f'SELECT PowerConsumption.DeviceId, SUM(PowerConsumption.DeviceConsumption) AS Cons, DevicesInfo.ServiceName, updated_services_name.new_name ' \
+        query = f'SELECT PowerConsumption.DeviceId, SUM(PowerConsumption.DeviceConsumption) AS Cons, DevicesInfo.ServiceName, DevicesInfo.DeviceType, updated_services_name.new_name ' \
                 f'FROM PowerConsumption ' \
                 f'LEFT JOIN DevicesInfo ' \
                 f'ON PowerConsumption.DeviceId = DevicesInfo.Id ' \
@@ -61,14 +61,14 @@ def send_active_devices_topic(func):
 def send_discovered_devices_topic(func):
     def wrapper(*args, **kwargs):
         result = func(*args, **kwargs)
-        query = f'SELECT DevicesInfo.Id, DevicesInfo.ServiceName, DevicesInfo.Power, updated_services_name.new_name, CASE WHEN DevicesInfo.IsConsumer THEN ActiveDevices.Cons ELSE 1 END FROM DevicesInfo LEFT JOIN updated_services_name ON updated_services_name.service_name = DevicesInfo.ServiceName ' \
+        query = f'SELECT DevicesInfo.Id, DevicesInfo.ServiceName, DevicesInfo.Power, DevicesInfo.DeviceType, updated_services_name.new_name, CASE WHEN DevicesInfo.IsConsumer THEN ActiveDevices.Cons ELSE 1 END FROM DevicesInfo LEFT JOIN updated_services_name ON updated_services_name.service_name = DevicesInfo.ServiceName ' \
                 f' LEFT JOIN (SELECT PowerConsumption.DeviceId AS DeviceId, SUM(PowerConsumption.DeviceConsumption) AS Cons FROM PowerConsumption GROUP BY DeviceId HAVING Cons > 0) ActiveDevices ON ActiveDevices.DeviceId = DevicesInfo.Id'
         active_devices = args[0].db_server.execute_query_with_output(query)
         logging.info(f"Discovered devices: {active_devices}")
         payload = []
         if active_devices:
             for device in active_devices:
-                payload.append({"service_name": device[1], "power": device[2], "name": device[3] if device[3] else device[1], "state": True if device[4] else False })
+                payload.append({"service_name": device[1], "power": device[2], "name": device[3] if device[3] else device[1], "state": True if device[5] else False })
         args[0].publish(topic='discovered_devices', payload = json.dumps(payload), retain = True)
         logging.info(f'Discovered payload: {payload}')
         return result
@@ -421,11 +421,11 @@ def update_procedure(client, msg, avahi_server, db):
                     payload=json.dumps(data))
 
 @send_active_devices_topic
+@send_discovered_devices_topic
 def new_name_procedure(client, msg, db):
     service_name_from_topic = msg.topic.split('/')[0]
     new_service_name = client.last.get('parameters').get('name')
-    query = f'INSERT OR REPLACE INTO updated_services_name (service_name, new_name) ' \
-            f"VALUES ('{service_name_from_topic}', '{new_service_name}')"
+    query = f"UPDATE DevicesInfo SET DeviceType = '{new_service_name}' WHERE ServiceName = '{service_name_from_topic}'"
     result = db.execute_query_without_output(query)
     client.publish(topic=f"{service_name_from_topic}/set.from_server",
                    payload=json.dumps({"result": result, "parameters": {"name": new_service_name}}))
