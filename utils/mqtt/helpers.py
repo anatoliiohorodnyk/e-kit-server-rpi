@@ -206,6 +206,15 @@ def registration_procedure(client, msg, avahi_server, db):
 @send_discovered_devices_topic
 def power_on_procedure(client, msg, avahi_server, db):
     service_name_from_topic = msg.topic.split('/')[0]
+
+    blocked_state = msg.payload['parameters']['blocked']
+
+    if blocked_state = True
+	print("***********Device on power on blocked*****************")
+	client.publish(topic=f"{service_name_from_topic}/set.from_server",
+                       payload=json.dumps({"result": False, "parameters": {"blocked": True}}))
+	return
+
     print("*********************POWER ON************************")
     static_service_db_data = db.get_all_from_db(table='DevicesInfo',
                                                 condition=f"ServiceName == '{service_name_from_topic}'")
@@ -315,6 +324,15 @@ def power_on_procedure(client, msg, avahi_server, db):
 @send_discovered_devices_topic
 def power_off_procedure(client, msg, avahi_server, db):
     service_name_from_topic = msg.topic.split('/')[0]
+
+    blocked_state = msg.payload['parameters']['blocked']
+
+    if blocked_state = True
+        print("***********Device on power on blocked*****************")
+        client.publish(topic=f"{service_name_from_topic}/set.from_server",
+                       payload=json.dumps({"result": False, "parameters": {"blocked": False}}))
+        return
+
     service_db_data = db.get_all_from_db(table='DevicesInfo',
                                              condition=f"ServiceName == '{service_name_from_topic}'")
     service_db_data = service_db_data[0] if service_db_data else None
